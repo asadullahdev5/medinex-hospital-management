@@ -1,8 +1,8 @@
 fastapi
 uvicorn[standard]
-sqlalchemy
-alembic
-pydantic
+sqlalchemy>=2.0
+psycopg2-binary
+pydantic[email]
 pydantic-settings
 passlib
 bcrypt==4.0.1

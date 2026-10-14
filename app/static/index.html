@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karachi Clinic – Appointment Booking</title>
+<style>
+  :root{--teal:#0f766e;--teal-d:#115e59;--bg:#f1f5f4;--card:#fff;--text:#1e293b;--muted:#64748b;--line:#e2e8f0;--red:#dc2626;--green:#16a34a;--amber:#d97706}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  header{background:var(--teal);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  header h1{font-size:1.15rem;margin:0}
+  header .who{display:flex;align-items:center;gap:10px;font-size:.9rem}
+  .badge{background:rgba(255,255,255,.2);padding:2px 10px;border-radius:99px;font-size:.78rem;text-transform:capitalize}
+  main{max-width:1000px;margin:20px auto;padding:0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+  .card h2{margin:0 0 12px;font-size:1.05rem}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+  .doc{border:1px solid var(--line);border-radius:10px;padding:12px}
+  .doc b{display:block}.doc small{color:var(--muted)}
+  label{display:block;font-size:.85rem;color:var(--muted);margin:8px 0 3px}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:.95rem;background:#fff}
+  input:focus,select:focus{outline:2px solid var(--teal);border-color:transparent}
+  button{background:var(--teal);color:#fff;border:0;padding:9px 16px;border-radius:8px;font-size:.9rem;cursor:pointer}
+  button:hover{background:var(--teal-d)}
+  button.ghost{background:transparent;border:1px solid currentColor;color:var(--teal)}
+  header button.ghost{color:#fff}
+  button.danger{background:var(--red)}
+  button.sm{padding:5px 10px;font-size:.8rem}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.row>div{flex:1;min-width:130px}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:.8rem}
+  .scroll{overflow-x:auto}
+  .st{padding:2px 9px;border-radius:99px;font-size:.78rem;color:#fff}
+  .st.booked{background:var(--amber)}.st.completed{background:var(--green)}.st.cancelled{background:var(--muted)}
+  .tabs{display:flex;gap:6px;margin-bottom:12px}
+  .tabs button{background:#e2e8f0;color:var(--text);flex:1}.tabs button.on{background:var(--teal);color:#fff}
+  .auth{max-width:400px;margin:40px auto}
+  .empty{color:var(--muted);font-size:.9rem;padding:6px 0}
+  .stats{display:flex;gap:12px;flex-wrap:wrap}.stat{background:var(--bg);border-radius:10px;padding:10px 16px;min-width:110px}
+  .stat b{font-size:1.4rem;display:block}
+  #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:8px;color:#fff;display:none;z-index:9;max-width:90%}
+  .hide{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏥 Karachi Clinic Booking</h1>
+  <div class="who hide" id="who"><span id="whoName"></span><span class="badge" id="whoRole"></span><button class="ghost sm" data-act="logout">Logout</button></div>
+</header>
+<main>
+  <!-- AUTH -->
+  <section id="authView" class="card auth hide">
+    <div class="tabs"><button class="on" data-act="tab" data-t="login">Login</button><button data-act="tab" data-t="signup">Sign up</button></div>
+    <form id="loginForm">
+      <label>Email</label><input type="email" id="lEmail" required>
+      <label>Password</label><input type="password" id="lPass" required>
+      <p><button type="submit" style="width:100%">Login</button></p>
+    </form>
+    <form id="signupForm" class="hide">
+      <label>Full name</label><input id="sName" minlength="2" required>
+      <label>Email</label><input type="email" id="sEmail" required>
+      <label>Password (min 6)</label><input type="password" id="sPass" minlength="6" maxlength="72" required>
+      <label>I am a</label><select id="sRole"><option value="patient">Patient</option><option value="doctor">Doctor</option></select>
+      <p><button type="submit" style="width:100%">Create account</button></p>
+    </form>
+  </section>
+
+  <!-- APP -->
+  <section id="appView" class="hide"></section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hm = t => String(t).slice(0, 5);
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+let token = localStorage.getItem('token'), me = null, doctors = [], users = [];
+let picked = null; // doctor jis ke liye booking ho rahi hai
+
+/* ---------- helpers ---------- */
+function toast(msg, ok = true) {
+  const t = $('#toast'); t.textContent = msg; t.style.background = ok ? '#0f766e' : '#dc2626';
+  t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500);
+}
+function fmtErr(d) {
+  if (!d) return '';
+  if (typeof d.detail === 'string') return d.detail;
+  if (Array.isArray(d.detail)) return d.detail.map(e => (e.loc?.slice(-1)[0] || '') + ': ' + e.msg).join(' | ');
+  return '';
+}
+async function api(path, { method = 'GET', json, form } = {}) {
+  const headers = {}; if (token) headers.Authorization = 'Bearer ' + token;
+  let body;
+  if (json) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(json); }
+  else if (form) body = new URLSearchParams(form);
+  let r;
+  try { r = await fetch(path, { method, headers, body }); }
+  catch { throw new Error('Server se connect nahi ho saka'); }
+  if (r.status === 204) return null;
+  let data = null; try { data = await r.json(); } catch {}
+  if (!r.ok) {
+    if (r.status === 401 && token && path !== '/auth/login') logout();
+    throw new Error(fmtErr(data) || r.statusText);
+  }
+  return data;
+}
+const run = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message, false); } };
+
+/* ---------- auth ---------- */
+function logout() {
+  token = null; me = null; localStorage.removeItem('token');
+  $('#who').classList.add('hide'); $('#appView').classList.add('hide'); $('#authView').classList.remove('hide');
+}
+async function boot() {
+  if (!token) return logout();
+  try { me = await api('/auth/me'); } catch { return logout(); }
+  $('#authView').classList.add('hide'); $('#appView').classList.remove('hide'); $('#who').classList.remove('hide');
+  $('#whoName').textContent = me.name; $('#whoRole').textContent = me.role;
+  await render();
+}
+$('#loginForm').addEventListener('submit', run(async e => {
+  e.preventDefault();
+  const d = await api('/auth/login', { method: 'POST', form: { username: $('#lEmail').value, password: $('#lPass').value } });
+  token = d.access_token; localStorage.setItem('token', token); await boot();
+}));
+$('#signupForm').addEventListener('submit', run(async e => {
+  e.preventDefault();
+  await api('/auth/signup', { method: 'POST', json: { name: $('#sName').value, email: $('#sEmail').value, password: $('#sPass').value, role: $('#sRole').value } });
+  toast('Account ban gaya! Ab login karo.');
+  $('#lEmail').value = $('#sEmail').value; document.querySelector('[data-t=login]').click();
+}));
+
+/* ---------- rendering ---------- */
+const docName = id => doctors.find(d => d.id === id)?.name ?? ('Doctor #' + id);
+const userName = id => users.find(u => u.id === id)?.name ?? ('Patient #' + id);
+const stBadge = s => `<span class="st ${esc(s)}">${esc(s)}</span>`;
+
+async function render() {
+  doctors = await api('/doctors/');
+  const el = $('#appView');
+  if (me.role === 'patient') el.innerHTML = await patientHTML();
+  else if (me.role === 'doctor') el.innerHTML = await doctorHTML();
+  else el.innerHTML = await adminHTML();
+  const dt = $('#bDate'); if (dt) dt.min = new Date().toISOString().slice(0, 10);
+}
+
+function apptTable(list, mode) {
+  if (!list.length) return '<div class="empty">Koi appointment nahi.</div>';
+  const rows = list.map(a => {
+    let who, act = '';
+    if (mode === 'patient') { who = docName(a.doctor_id); if (a.status === 'booked') act = `<button class="danger sm" data-act="cancel" data-id="${a.id}">Cancel</button>`; }
+    else if (mode === 'doctor') {
+      who = userName(a.patient_id);
+      if (a.status === 'booked') act = `<button class="sm" data-act="status" data-s="completed" data-id="${a.id}">Done</button> <button class="danger sm" data-act="status" data-s="cancelled" data-id="${a.id}">Cancel</button>`;
+    } else who = `${esc(userName(a.patient_id))} → ${esc(docName(a.doctor_id))}`;
+    return `<tr><td>${esc(a.appointment_date)}</td><td>${hm(a.appointment_time)}</td><td>${mode === 'admin' ? who : esc(who)}</td><td>${stBadge(a.status)}</td><td>${act}</td></tr>`;
+  }).join('');
+  const head = mode === 'patient' ? 'Doctor' : mode === 'doctor' ? 'Patient' : 'Patient → Doctor';
+  return `<div class="scroll"><table><tr><th>Date</th><th>Time</th><th>${head}</th><th>Status</th><th></th></tr>${rows}</table></div>`;
+}
+
+async function patientHTML() {
+  const appts = await api('/appointments/my');
+  const cards = doctors.length ? doctors.map(d => `<div class="doc"><b>Dr. ${esc(d.name)}</b><small>${esc(d.email)}</small><p><button class="sm" data-act="pick" data-id="${d.id}">Schedule &amp; Book</button></p></div>`).join('') : '<div class="empty">Abhi koi doctor registered nahi.</div>';
+  return `
+  <div class="card"><h2>Doctors</h2><div class="grid">${cards}</div></div>
+  <div class="card ${picked ? '' : 'hide'}" id="bookCard"><h2>Book appointment</h2><div id="bookBody"></div></div>
+  <div class="card"><h2>Meri appointments</h2>${apptTable(appts, 'patient')}</div>`;
+}
+
+async function doctorHTML() {
+  const [sched, appts, us] = await Promise.all([api(`/doctors/${me.id}/schedule`), api('/appointments/my'), Promise.resolve([])]);
+  users = us;
+  const rows = sched.length ? `<div class="scroll"><table><tr><th>Day</th><th>From</th><th>To</th><th></th></tr>${sched.map(s => `<tr><td>${esc(s.day_of_week)}</td><td>${hm(s.start_time)}</td><td>${hm(s.end_time)}</td><td><button class="danger sm" data-act="delsched" data-id="${s.id}">Delete</button></td></tr>`).join('')}</table></div>` : '<div class="empty">Abhi koi schedule nahi.</div>';
+  return `
+  <div class="card"><h2>Mera schedule</h2>
+    <form id="schedForm" class="row">
+      <div><label>Day</label><select id="sDay">${DAYS.map(d => `<option>${d}</option>`).join('')}</select></div>
+      <div><label>Start</label><input type="time" id="sStart" required></div>
+      <div><label>End</label><input type="time" id="sEnd" required></div>
+      <div style="flex:0"><button type="submit">Add</button></div>
+    </form><br>${rows}</div>
+  <div class="card"><h2>Mere patients ki appointments</h2>${apptTable(appts, 'doctor')}</div>`;
+}
+
+async function adminHTML() {
+  const [st, us, appts] = await Promise.all([api('/admin/stats'), api('/admin/users'), api('/admin/appointments')]);
+  users = us;
+  const box = (o) => Object.entries(o).map(([k, v]) => `<div class="stat"><b>${esc(v)}</b>${esc(k)}</div>`).join('') || '<div class="empty">—</div>';
+  const urows = us.map(u => `<tr><td>${u.id}</td><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.role)}</td><td>${u.id !== me.id ? `<button class="danger sm" data-act="deluser" data-id="${u.id}">Delete</button>` : ''}</td></tr>`).join('');
+  return `
+  <div class="card"><h2>Users</h2><div class="stats">${box(st.users_by_role)}</div></div>
+  <div class="card"><h2>Appointments</h2><div class="stats">${box(st.appointments_by_status)}</div></div>
+  <div class="card"><h2>Saare users</h2><div class="scroll"><table><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th></th></tr>${urows}</table></div></div>
+  <div class="card"><h2>Saari appointments</h2>${apptTable(appts, 'admin')}</div>`;
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', run(async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const { act, id, s, t } = b.dataset;
+  if (act === 'logout') return logout();
+  if (act === 'tab') {
+    document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+    $('#loginForm').classList.toggle('hide', t !== 'login'); $('#signupForm').classList.toggle('hide', t !== 'signup'); return;
+  }
+  if (act === 'pick') {
+    picked = doctors.find(d => d.id === +id);
+    const sched = await api(`/doctors/${id}/schedule`);
+    const list = sched.length ? sched.map(x => `${esc(x.day_of_week)}: ${hm(x.start_time)} – ${hm(x.end_time)}`).join('<br>') : '<span class="empty">Is doctor ne abhi schedule nahi diya.</span>';
+    $('#bookCard').classList.remove('hide');
+    $('#bookBody').innerHTML = `<p><b>Dr. ${esc(picked.name)}</b> ka schedule:<br>${list}</p>
+      <form id="bookForm" class="row"><div><label>Date</label><input type="date" id="bDate" required></div>
+      <div><label>Time</label><input type="time" id="bTime" required></div><div style="flex:0"><button type="submit">Book</button></div></form>`;
+    $('#bDate').min = new Date().toISOString().slice(0, 10);
+    $('#bookCard').scrollIntoView({ behavior: 'smooth' }); return;
+  }
+  if (act === 'cancel') { if (!confirm('Appointment cancel karni hai?')) return; await api(`/appointments/${id}/cancel`, { method: 'PATCH' }); toast('Cancel ho gayi'); }
+  if (act === 'status') { await api(`/appointments/${id}/status`, { method: 'PATCH', json: { status: s } }); toast('Update ho gayi'); }
+  if (act === 'delsched') { await api(`/doctors/schedule/${id}`, { method: 'DELETE' }); toast('Schedule delete ho gaya'); }
+  if (act === 'deluser') { if (!confirm('User delete karna hai?')) return; await api(`/admin/users/${id}`, { method: 'DELETE' }); toast('User delete ho gaya'); }
+  await render();
+}));
+
+document.addEventListener('submit', run(async e => {
+  if (e.target.id === 'bookForm') {
+    e.preventDefault();
+    await api('/appointments/', { method: 'POST', json: { doctor_id: picked.id, appointment_date: $('#bDate').value, appointment_time: $('#bTime').value } });
+    toast('Appointment book ho gayi! ✅'); picked = null; await render();
+  } else if (e.target.id === 'schedForm') {
+    e.preventDefault();
+    await api('/doctors/schedule', { method: 'POST', json: { day_of_week: $('#sDay').value, start_time: $('#sStart').value, end_time: $('#sEnd').value } });
+    toast('Schedule add ho gaya'); await render();
+  }
+}));
+
+boot();
+</script>
+</body>
+</html>
